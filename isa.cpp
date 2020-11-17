@@ -1,3 +1,9 @@
+/* Projekt do předmětu ISA
+*  Discord Bot
+*  Vypracoval: Ondřej Pavlacký
+*  VUT FIT   3BIT 2020/21   */
+
+
 #include <openssl/ssl.h>
 #include <stdio.h>
 #include <memory.h>
@@ -11,65 +17,469 @@
 #include <string.h>
 #include <string>
 #include <sstream>
-
+#include <tuple>
+#include <vector>
+#include <stdio.h>      
+#include <stdlib.h>  
+#include <unistd.h>
+#include <stdlib.h>  
 
 using namespace std;
-int main() {
 
+
+void closeSSL(SSL* ssl, int sd, SSL_CTX* ctx){
+
+    SSL_shutdown (ssl);
+    close(sd);
+    SSL_free (ssl);
+    SSL_CTX_free (ctx);
+
+}
+
+SSL* initSSL(struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509*    server_cert, char* str, char buf [4096], const SSL_METHOD *meth, int sd){
+    
+    struct hostent *lh = gethostbyname("discord.com");
+    int err;
+    // Vytvoření SSL spojení 
+    OpenSSL_add_ssl_algorithms();
+    meth = TLSv1_2_client_method();
+    SSL_load_error_strings();
+    ctx = SSL_CTX_new (meth);
+
+    // Kontrola správnosti vytvoření spojení 
+    if(!ctx){
+        std::cout << "Chyba při vytváření SSL kontextu\n";
+        exit(101);
+    }  
+    if(sd == -1){
+        std::cout << "Chyba vytvoření socketu\n";
+        exit(101);
+    }
+
+    // Převzato z: https://github.com/openssl/openssl/blob/691064c47fd6a7d11189df00a0d1b94d8051cbe0/demos/ssl/cli.cpp
+    // Autoři: Sampo Kellomaki, Wade Scholine
+    // Nastavení požadovaných parametrů pro úspěšné použití SSL
+
+    memset(&sa, 0, sizeof(sa));    //std::cout << received_message;  
+    sa.sin_family      = AF_INET;
+    memcpy(&sa.sin_addr, lh->h_addr, lh->h_length);
+    sa.sin_port        = htons     (443); //Pro SSL se používá port 443
+  
+
+    err = connect(sd, (struct sockaddr*) &sa, sizeof(sa));
+    if(err == -1){
+        std::cout << "Nepodařilo se otevřít socket\n";
+        exit(101);
+    }
+
+    // Vytvoření SSL spojení                  
+    ssl = SSL_new (ctx);
+    if(ssl == NULL){
+        std::cout << "Nepodařilo se otevřít SSL spojení\n";
+        exit(101);
+    }
+    // Spojení našeho vyrtovřeného socketu s SSL                          
+    SSL_set_fd (ssl, sd);
+    // Připojení se přes SSL protokol
+    err = SSL_connect (ssl);
+    if(err == -1){
+        std::cout << "Nepodařilo připojit přes SSL\n";
+        exit(101);
+    }
+    return ssl;
+}
+
+string FindLastMessageId(string received_message){
+
+
+
+
+
+
+
+}
+
+
+// Taky už posloucchá a posílá zprávy
+void BotTalk(string bot_token, string last_message_id, string room_id, struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509* server_cert, char* str, char buf [4096], const SSL_METHOD *meth, int sd){
+    
+    int err;
+    stringstream http_request_get_message_after;
+
+    while (true){
+        //std::cout << "Hotovo Last message id :   " << last_message_id << "\n";
+        //std::cout << "Hotovo Room id:   " << room_id << "\n";
+        sd = socket (AF_INET, SOCK_STREAM, 0); 
+        ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
+
+        http_request_get_message_after << "GET /api/v6/channels/"+ room_id + "/messages?after="+ last_message_id + " HTTP/1.1\r\n"
+               << "Content-Type: application/json\r\n"
+               << "Host: discord.com\r\n"
+               << "Authorization: Bot " << bot_token << "\r\n"
+               << "Accept: application/json\r\n"
+               << "Connection: close\r\n\r\n";
+
+        // Převedení na string
+        string request = http_request_get_message_after.str();
+        
+        
+        err = SSL_write (ssl, request.c_str(), request.size());  
+        if(err == -1){
+            std::cout << "Nepodařilo se odeslat SSL požadavek\n";
+            exit(101);
+        }
+
+        // String ve kterém budu ukládat příchozí zprávu ze serveru
+        string received_message;
+
+        // Přectení celé zprávy a uložení odpovědi
+        while (err > 0){
+            err = SSL_read (ssl, buf, sizeof(buf)-1);   
+            buf[err] = '\0';
+            received_message.append(string(buf));          
+            
+        }
+        closeSSL(ssl, sd, ctx);
+        int help = received_message.find("\r\n\r\n");
+        string just_content = received_message.erase(0, (help));
+        std::cout << just_content;
+        sleep(2);
+    }
+
+}
+
+
+//Funkce na hledání kanálu #isa-bot
+tuple<string, string> FindIsaBotChannel(string received_message){
+
+    string last_message_id = "";
+    string nazev_roomky = "";
+    string id_roomky = "";
+    for(int i = 0; received_message[i] != '\0'; i++){
+        char pismenko = received_message[i];
+        //printf("%c",pismenko);
+        if(pismenko == '"'){
+            i++;
+            if(received_message[i] == 'n'){
+                i++;
+                if(received_message[i] == 'a'){
+                    i++;
+                    if(received_message[i] == 'm'){
+                        i++;
+                        if(received_message[i] == 'e'){
+                            i++;
+                            if(received_message[i] == '"'){
+                                i++;
+                                if(received_message[i] == ':'){
+                                    i++;
+                                    if(received_message[i] == ' '){
+                                        i++;
+                                        if(received_message[i] == '"'){
+                                            i++;
+                                            while(received_message[i] != '"'){
+                                                nazev_roomky.push_back(received_message[i]);
+                                                i++;
+                                            } 
+                                            if(strcmp(nazev_roomky.c_str(), "isa-bot") != 0){
+                                                nazev_roomky = "";
+                                            }else{
+                                                int back = 0;
+                                                while(received_message[back] != '{'){
+                                                    //std::cout << received_message[back];
+                                                    back--;
+                                                }
+                                                for(; received_message[back] != '\0'; back++){
+                                                    if(received_message[back] == '"'){
+                                                        back++;
+                                                        if(received_message[back] == 'i'){
+                                                            back++;
+                                                            if(received_message[back] == 'd'){
+                                                                back++;
+                                                                if(received_message[back] == '"'){
+                                                                    back++;
+                                                                    if(received_message[back] == ':'){
+                                                                        back++;
+                                                                        if(received_message[back] == ' '){
+                                                                            back++;
+                                                                            if(received_message[back] == '"'){
+                                                                                back++;
+                                                                                while(received_message[back] != '"'){
+                                                                                    id_roomky.push_back(received_message[back]);
+                                                                                    back++;
+                                                                                }
+                                                                                //std::cout<< id_roomky;
+                                                                                for(; received_message[back] != '\0'; back++){
+                                                                                    if(received_message[back] == 'a'){
+                                                                                        back++;
+                                                                                        if(received_message[back] == 'g'){
+                                                                                            back++;
+                                                                                            if(received_message[back] == 'e'){
+                                                                                                back++;
+                                                                                                if(received_message[back] == '_'){
+                                                                                                    back++;
+                                                                                                    if(received_message[back] == 'i'){
+                                                                                                        back++;
+                                                                                                        if(received_message[back] == 'd'){
+                                                                                                            back++;
+                                                                                                            if(received_message[back] == '"'){
+                                                                                                                back++;
+                                                                                                                if(received_message[back] == ':'){
+                                                                                                                    back++;
+                                                                                                                    if(received_message[back] == ' '){
+                                                                                                                        back++;
+                                                                                                                        if(received_message[back] == '"'){
+                                                                                                                            back++;
+                                                                                                                            while(received_message[back] != '"'){
+                                                                                                                                last_message_id.push_back(received_message[back]);
+                                                                                                                                back++;
+                                                                                                                            }
+                                                                                                                            break;
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+
+                                                                                }   
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } 
+                                    } 
+                                } 
+                            } 
+                        } 
+                    }
+                }   
+            }
+        }
+
+    }
+
+    std::cout << "Last messagew id: " << last_message_id << "\n";
+    std::cout << "Id roomky: " << id_roomky << "\n";
+    return make_tuple(id_roomky, last_message_id);;
+}
+
+
+// Funkce na zjištění serveru kde je místnost #isa-bot
+// Vrací list všech id, které najde
+vector<string> GetBotDiscordServers(string received_message){
+
+    vector<string> id_list {};
+    string id_serveru = "";
+    // Musím si zjistit všechny id serverů, hledáma konkrétní posloupnost znaků, která značí id
+    for(int i = 0; received_message[i] != '\0'; i++){
+        char pismenko = received_message[i];
+        //printf("%c",pismenko);
+        if(pismenko == '['){
+            i++;
+            if(received_message[i] == '{'){
+                i++;
+                if(received_message[i] == '"'){
+                    i++;
+                    if(received_message[i] == 'i'){
+                        i++;
+                        if(received_message[i] == 'd'){
+                            i++;
+                            if(received_message[i] == '"'){
+                                i++;
+                                if(received_message[i] == ':'){
+                                    i++;
+                                    if(received_message[i] == ' '){
+                                        i++;
+                                        if(received_message[i] == '"'){
+                                            i++;
+                                            while(received_message[i] != '"'){
+                                                id_serveru.push_back(received_message[i]);
+                                                i++;
+                                            }
+                                            // Až najdu kompletní id, zkusím najít v serveru kanál #isa-bot
+                                            id_list.push_back(id_serveru);
+                                        } 
+                                    } 
+                                } 
+                            } 
+                        } 
+                    }
+                }  
+            }
+        }
+    }
+    return id_list;
+
+}
+
+// Funkce na inicializaci bota a následně na jeho kontrolu
+void BotControl(bool verbose, const char* token){
+ 
+    // Definování proměnných, které se vážkou k socketu/SSL
     int err;
     struct sockaddr_in sa;
     SSL_CTX* ctx;
     SSL*     ssl;
     X509*    server_cert;
     char*    str;
-    char     buf [100000];
+    char     buf [4096];
     const SSL_METHOD *meth;
 
-    struct hostent *lh = gethostbyname("discord.com");
-    OpenSSL_add_ssl_algorithms();
-    meth = TLSv1_2_client_method();
-    SSL_load_error_strings();
-    ctx = SSL_CTX_new (meth);  
     int sd = socket (AF_INET, SOCK_STREAM, 0); 
-    if(sd == -1){
-        printf("Chyba vytvoření socketu\n");
-        exit(1);
+    ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
+
+    // Vrací strukturu hostent která obsahuje informace o hostovi
+    
+    // Přednastavení zpráv 
+    string bot_token = token;
+    stringstream http_request;
+    stringstream http_request1;
+
+    // GET Request na získání serverů na kterých je bot
+    http_request << "GET /api/v6/users/@me/guilds HTTP/1.1\r\n"
+           << "Content-Type: application/json\r\n"
+           << "Host: discord.com\r\n"
+           << "Authorization: Bot " << bot_token << "\r\n"
+           << "Accept: application/json\r\n"
+           << "Connection: close\r\n\r\n";
+           
+    // Převedení na string
+    string request = http_request.str();
+    
+    
+    err = SSL_write (ssl, request.c_str(), request.size());  
+    if(err == -1){
+        std::cout << "Nepodařilo se odeslat SSL požadavek\n";
+        exit(101);
     }
 
-    memset(&sa, 0, sizeof(sa));
-    sa.sin_family      = AF_INET;
-    memcpy(&sa.sin_addr, lh->h_addr, lh->h_length);
-    sa.sin_port        = htons     (443);          /* Server Port number */
-  
-    err = connect(sd, (struct sockaddr*) &sa,
-		sizeof(sa));                   
-    ssl = SSL_new (ctx);                          
-    SSL_set_fd (ssl, sd);
-    err = SSL_connect (ssl);                     
-    
-    string token_from_bot = "NzY0MTQ3MDc3NjgzODcxNzY1.X4CBbA.BJeeM1VuSY1sYbeEr-xO_zy61uw";
-    stringstream stream;
-    string config = "{\"content\":\"Ty zmrde\"}";
-    stream << "POST /api/v6/channels/711233265578672179/messages HTTP/1.1\r\n"
-       << "Content-Type: application/json\r\n"
-       << "Host: discord.com\r\n"
-       << "Authorization: Bot " << token_from_bot << "\r\n"
-       << "Accept: application/json\r\n"
-       << "Content-length: " << config.size() << "\r\n"
-       << "Connection: close\r\n\r\n"
-       << config << "\r\n\r\n";
-    string request = stream.str();
-    int len = 200;
-    printf ("SSL connection using %s\n", SSL_get_cipher (ssl));
-    err = SSL_write (ssl, request.c_str(), request.size());  
-    string content;
-    do{
-        err = SSL_read (ssl, buf, 200);   
-        buf[len] = 0;
-        content.append(string(buf));          
-        printf("%s\n",buf);
-    } while (err > 0);        
+    // String ve kterém budu ukládat příchozí zprávu ze serveru
+    string received_message;
 
-    SSL_free (ssl);
-    SSL_CTX_free (ctx);
+    // Přectení celé zprávy a uložení odpovědi
+    while (err > 0){
+        err = SSL_read (ssl, buf, sizeof(buf)-1);   
+        buf[err] = '\0';
+        received_message.append(string(buf));          
+        
+    }
+    //std::cout << received_message;
+
+    closeSSL(ssl, sd, ctx);
+
+    vector<string> server_ids {};
+    server_ids = GetBotDiscordServers(received_message);
+    string channel_id = "";
+    string channels = "";
+
+    sleep(2);
+    for (int i = 0; i < server_ids.size(); i++){
+        sd = socket (AF_INET, SOCK_STREAM, 0); 
+        ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
+        
+        http_request1 << "GET /api/v6/guilds/" + server_ids[i] + "/channels HTTP/1.1\r\n"
+           << "Content-Type: application/json\r\n"
+           << "Host: discord.com\r\n"
+           << "Authorization: Bot " << bot_token << "\r\n"
+           << "Accept: application/json\r\n"
+           << "Connection: close\r\n\r\n";
+        request = http_request1.str();
+        err = SSL_write (ssl, request.c_str(), request.size());  
+        if(err == -1){
+            std::cout << "Nepodařilo se odeslat SSL požadavek\n";
+            exit(101);
+        }
+        while (err > 0){
+        err = SSL_read (ssl, buf, sizeof(buf)-1);   
+        buf[err] = '\0';
+        channels.append(string(buf));          
+        }
+
+        string id_roomky;
+        string last_message_id;
+        tie(id_roomky, last_message_id) = FindIsaBotChannel(channels);
+        std::cout<< id_roomky << "\n";
+
+        std::cout << "Snad room id: " << id_roomky << "\n";
+        std::cout << "Last message id (snnad): " <<  last_message_id << "\n" ;
+        if(strcmp(channel_id.c_str(), "") != 0){
+
+            std::cout << "Room id: " << channel_id << "\n";
+        }
+
+        closeSSL(ssl, sd, ctx);
+        printf("PROBLEMY\n");
+        if(strcmp(id_roomky.c_str(), "") == 0){
+            printf("Spojení špatně navázáno, navazuji znovu\n");
+            BotControl(verbose,token);
+        }
+
+        //Tady se zavolá funkce která jede do konce 
+        BotTalk(token, last_message_id, id_roomky,sa , ctx, ssl, server_cert, str, buf, meth, sd);
+    } 
+}
+
+
+// Funkce zpracovává argumenty viz. zadání
+// Vrací jestli byl použit přepínač verbose a token bota
+tuple<bool, const char*> ArgumentParser(int argc, char **argv){
+
+    const char* access_token = "";
+    bool verbose = false;
+    // Pokud nejsou zadány argumenty zobrazí se nápověda viz. zadání
+    if(argc == 1){
+        std::cout << "Discord BOT -Vypracoval Ondřej Pavlacký (xpavla15)\n\nNápověda pro použití:\n\n-h|--help : Vypíše nápovědu na standardní výstup.\n\n-v|--verbose : Bude zobrazovat zprávy, na které bot reaguje na standardní výstup ve formátu <channel> - <username>: <message>.\n\n-t <bot_access_token> : Zde je nutno zadat autentizační token pro přístup bota na Discord.\n\nUkončení programu proběhne zasláním signálu SIGINT (tedy například pomocí kombinace kláves Ctrl + c), do té doby bude bot vykonávat svou funkcionalitu.\n\nV případě dotazů mě neváhejte kontaktovat: xpavla15@vutbr.cz\n\n";
+        exit(0);
+    }else{
+        // Projde další argumenty a zjistí jejich správnost a případně si je uloží
+        for (int i = 1; i < argc; i++)
+        {  
+            if(strcmp(argv[i], "-h") ==  0 || strcmp(argv[i], "--help") == 0){
+                std::cout << "Discord BOT -Vypracoval Ondřej Pavlacký (xpavla15)\n\nNápověda pro použití:\n\n-h|--help : Vypíše nápovědu na standardní výstup.\n\n-v|--verbose : Bude zobrazovat zprávy, na které bot reaguje na standardní výstup ve formátu <channel> - <username>: <message>.\n\n-t <bot_access_token> : Zde je nutno zadat autentizační token pro přístup bota na Discord.\n\nUkončení programu proběhne zasláním signálu SIGINT (tedy například pomocí kombinace kláves Ctrl + c), do té doby bude bot vykonávat svou funkcionalitu.\n\nV případě dotazů mě neváhejte kontaktovat: xpavla15@vutbr.cz\n\n";
+                exit(0);
+            }
+            else if(strcmp(argv[i], "-v") ==  0 || strcmp(argv[i], "--verbose") == 0){
+                verbose = true;
+            }
+            else if(strcmp(argv[i], "-t") ==  0){
+                if(i+1 >= argc){
+                    std::cout << "Není zadán token\n";
+                    exit(101);
+                }else {
+                    access_token = argv[i+1];
+                    i++;
+                }
+            }
+            else{
+                std::cout << "Chyba v přepínači!\nZkuste -h nebo --help pro nápovědu\n";
+                exit(101);
+            }
+        }
+        return make_tuple(verbose,access_token);
+        
+    }
+}
+
+//Spuštění programu
+int main(int argc, char *argv[]) {
+
+    // Funkce na zpracování argumentů
+    bool verbose;
+    const char* token;
+    tie(verbose, token) = ArgumentParser(argc,argv);
+
+    //Zavolání funkce na inicializaci a kontrolu bota
+    BotControl(verbose,token);    
+
+    return 0;
 }
