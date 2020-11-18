@@ -28,6 +28,7 @@
 using namespace std;
 
 
+// Funkce na uzavření ssl připojení a socketu
 void closeSSL(SSL* ssl, int sd, SSL_CTX* ctx){
 
     SSL_shutdown (ssl);
@@ -37,11 +38,16 @@ void closeSSL(SSL* ssl, int sd, SSL_CTX* ctx){
 
 }
 
+// Funkce na vytvoření SSL připojení a socketu
+// Vrací vytvořené a aktivní SSL spojení
 SSL* initSSL(struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509*    server_cert, char* str, char buf [4096], const SSL_METHOD *meth, int sd){
     
+
+    // Převzato z: https://github.com/openssl/openssl/blob/691064c47fd6a7d11189df00a0d1b94d8051cbe0/demos/ssl/cli.cpp
+    // Autoři: Sampo Kellomaki, Wade Scholine
+    // Nastavení požadovaných parametrů pro úspěšné použití SSL
     struct hostent *lh = gethostbyname("discord.com");
     int err;
-    // Vytvoření SSL spojení 
     OpenSSL_add_ssl_algorithms();
     meth = TLSv1_2_client_method();
     SSL_load_error_strings();
@@ -57,11 +63,7 @@ SSL* initSSL(struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509*    server_cert
         exit(101);
     }
 
-    // Převzato z: https://github.com/openssl/openssl/blob/691064c47fd6a7d11189df00a0d1b94d8051cbe0/demos/ssl/cli.cpp
-    // Autoři: Sampo Kellomaki, Wade Scholine
-    // Nastavení požadovaných parametrů pro úspěšné použití SSL
-
-    memset(&sa, 0, sizeof(sa));    //std::cout << received_message;  
+    memset(&sa, 0, sizeof(sa));  
     sa.sin_family      = AF_INET;
     memcpy(&sa.sin_addr, lh->h_addr, lh->h_length);
     sa.sin_port        = htons     (443); //Pro SSL se používá port 443
@@ -79,9 +81,8 @@ SSL* initSSL(struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509*    server_cert
         std::cout << "Nepodařilo se otevřít SSL spojení\n";
         exit(101);
     }
-    // Spojení našeho vyrtovřeného socketu s SSL                          
+                        
     SSL_set_fd (ssl, sd);
-    // Připojení se přes SSL protokol
     err = SSL_connect (ssl);
     if(err == -1){
         std::cout << "Nepodařilo připojit přes SSL\n";
@@ -90,12 +91,16 @@ SSL* initSSL(struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509*    server_cert
     return ssl;
 }
 
+// Funkce na rozparsování zpráv co nám vrátí server
+// Vrací list zpráv
 vector<string> ParseMessages(string received_message){
 
     int help;
+    string bot = "bot";
     vector<string> messages {};
     string content = "";
-    string message_from_user = "isa-bot - ";
+    string isa_bot = "isa-bot - ";
+    string message_from_user = "";
     for(int i =0; i < received_message.length(); i++){
         if(received_message[i] == 'n'){
             help = i;
@@ -141,12 +146,17 @@ vector<string> ParseMessages(string received_message){
                                     message_from_user.push_back(received_message[i]);
                                     i++;
                                 }
-                                message_from_user.push_back(':');
-                                message_from_user.push_back(' ');
-                                message_from_user.append(content);
-                                std::cout<< message_from_user << "\n";
-                                messages.push_back(message_from_user);
-                                message_from_user = "isa-bot - "; 
+                                if(message_from_user.find(bot) == std::string::npos){
+                                    isa_bot.append(message_from_user);
+                                    isa_bot.push_back(':');
+                                    isa_bot.push_back(' ');
+                                    isa_bot.append(content);
+                                    messages.push_back(isa_bot);
+                                }
+                                //std::cout<< isa_bot;
+                                message_from_user = "";
+                                isa_bot = "isa-bot - "; 
+                                content = "";
                                 
                             }
                         }
@@ -160,21 +170,63 @@ vector<string> ParseMessages(string received_message){
     return messages;
 }
 
+// Funkce na získání id poslední zprávy
+// Vrací string v podobě id poslední zprávy
+string GetLastMessageId(string received_message){
 
-// Taky už posloucchá a posílá zprávy
-void BotTalk(string bot_token, string last_message_id, string room_id, struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509* server_cert, char* str, char buf [4096], const SSL_METHOD *meth, int sd){
+    string last_message_id = "";
+    for(int i =0; i < received_message.length(); i++){
+        if(received_message[i] == '"'){
+            i++;
+            if(received_message[i] == 'i'){
+                i++;
+                if(received_message[i] == 'd'){
+                    i++;
+                    if(received_message[i] == '"'){
+                        i++;
+                        if(received_message[i] == ':'){
+                            i++;
+                            if(received_message[i] == ' '){
+                                i++;
+                                if(received_message[i] == '"'){
+                                    i++;
+                                    while(received_message[i] != '"'){
+                                        last_message_id.push_back(received_message[i]);
+                                        i++;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return last_message_id;
+}
+
+// Tady už posloucchá a posílá zprávy zpět na server
+// Nekonečný cyklus, které pořád naslouchá
+void BotTalk(bool verbose, string bot_token, string last_message_id, string room_id, struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509* server_cert, char* str, char buf [4096], const SSL_METHOD *meth, int sd){
     
     int err;
     stringstream http_request_get_message_after;
-
+    string last_get_id = last_message_id;
     while (true){
         //std::cout << "Hotovo Last message id :   " << last_message_id << "\n";
         //std::cout << "Hotovo Room id:   " << room_id << "\n";
         sd = socket (AF_INET, SOCK_STREAM, 0); 
         ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
 
-        http_request_get_message_after << "GET /api/v6/channels/"+ room_id + "/messages?after="+ last_message_id + " HTTP/1.1\r\n"
-               << "Content-Type: application/json\r\n"
+        last_get_id = last_message_id;
+        //std::cout<<"Po téhle už nic nechci: " << last_message_id << "\n";
+        // Dotaz na získání zpráv po poslední kterou jse zachitil
+        http_request_get_message_after.str("");
+        //std::cout<<http_request_get_message_after.str();
+        http_request_get_message_after << "GET /api/v6/channels/"+ room_id + "/messages?after="+ last_get_id + " HTTP/1.1\r\n"
+               << "Content-Type: application/json; charset=utf-8\r\n"
                << "Host: discord.com\r\n"
                << "Authorization: Bot " << bot_token << "\r\n"
                << "Accept: application/json\r\n"
@@ -183,16 +235,15 @@ void BotTalk(string bot_token, string last_message_id, string room_id, struct so
         // Převedení na string
         string request = http_request_get_message_after.str();
         
-        
+        // Poslání dotazu
         err = SSL_write (ssl, request.c_str(), request.size());  
         if(err == -1){
             std::cout << "Nepodařilo se odeslat SSL požadavek\n";
             exit(101);
         }
-
         // String ve kterém budu ukládat příchozí zprávu ze serveru
         string received_message;
-
+        
         // Přectení celé zprávy a uložení odpovědi
         while (err > 0){
             err = SSL_read (ssl, buf, sizeof(buf)-1);   
@@ -200,12 +251,17 @@ void BotTalk(string bot_token, string last_message_id, string room_id, struct so
             received_message.append(string(buf));          
             
         }
+
         closeSSL(ssl, sd, ctx);
         
         int help = received_message.find("\r\n\r\n");
         string just_content = received_message.erase(0, (help + 4));
-        
-        if(just_content[1] != ']'){
+        //std::cout<<just_content;
+
+        last_get_id = GetLastMessageId(just_content);
+
+        if(strcmp(last_message_id.c_str(), last_get_id.c_str()) != 0 && strcmp(last_get_id.c_str(), "") != 0){
+            
             //std::cout << just_content;
             sleep(2);
             vector<string> parsed_messages {};
@@ -214,9 +270,24 @@ void BotTalk(string bot_token, string last_message_id, string room_id, struct so
             sd = socket (AF_INET, SOCK_STREAM, 0); 
             ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
             stringstream http_post_message;
-            std::cout<< "ROZPARSOVANO: " << parsed_messages[0] << "\n";
-            string content = "{\"content\":\"echo: " + parsed_messages[0] + "\"}";
-                        //Zaslání zprávy zpět na server
+            string concat_msg = "";
+            string print_msg = "";
+            //std::cout<< "ROZPARSOVANO: " << parsed_messages[0] << "\n";
+            for(int i = parsed_messages.size()-1; i >= 0; i--){
+                concat_msg.append(parsed_messages[i]);
+                print_msg.append(parsed_messages[i]);
+                print_msg.append("\n");
+                concat_msg.append("\\n");
+                
+            }
+            //TODO
+            if(verbose){
+                std::cout<< print_msg;
+            }
+            
+            //std::cout<< "\n----------------------------------------\n";
+            string content = "{\"content\":\"echo: " + concat_msg + "\"}";
+            //Zaslání zprávy zpět na server
             http_post_message << "POST /api/v6/channels/"+ room_id + "/messages HTTP/1.1\r\n"
                 << "Content-Type: application/json\r\n"
                 << "Host: discord.com\r\n"
@@ -225,7 +296,7 @@ void BotTalk(string bot_token, string last_message_id, string room_id, struct so
                 << "Content-length: " << content.size() << "\r\n"
                 << "Connection: close\r\n\r\n"
                 << content << "\r\n\r\n";
-            
+            content = "";
             request = http_post_message.str();
             
             err = SSL_write (ssl, request.c_str(), request.size());  
@@ -237,11 +308,17 @@ void BotTalk(string bot_token, string last_message_id, string room_id, struct so
                 err = SSL_read (ssl, buf, sizeof(buf)-1);   
                 buf[err] = '\0';
                 received_message.append(string(buf)); 
-            }
-            //std::cout<< received_message;         
-            closeSSL(ssl, sd, ctx);    
+            }       
+            closeSSL(ssl, sd, ctx); 
+            int help = received_message.find("\r\n\r\n");
+            string just_content = received_message.erase(0, (help + 4));
+            //std::cout<< just_content;  
+            last_message_id = GetLastMessageId(just_content);
+            //std::cout<<"\n\n" <<last_message_id << "\n";
+            concat_msg = "";
+            content = "";
         }
-
+        //last_message_id = GetLastMessageId(just_content);
         
 
         sleep(2);
@@ -369,8 +446,8 @@ tuple<string, string> FindIsaBotChannel(string received_message){
 
     }
 
-    std::cout << "Last messagew id: " << last_message_id << "\n";
-    std::cout << "Id roomky: " << id_roomky << "\n";
+    //std::cout << "Last messagew id: " << last_message_id << "\n";
+    //std::cout << "Id roomky: " << id_roomky << "\n";
     return make_tuple(id_roomky, last_message_id);;
 }
 
@@ -509,24 +586,24 @@ void BotControl(bool verbose, const char* token){
         string id_roomky;
         string last_message_id;
         tie(id_roomky, last_message_id) = FindIsaBotChannel(channels);
-        std::cout<< id_roomky << "\n";
+        //std::cout<< id_roomky << "\n";
 
-        std::cout << "Snad room id: " << id_roomky << "\n";
-        std::cout << "Last message id (snnad): " <<  last_message_id << "\n" ;
+        //std::cout << "Snad room id: " << id_roomky << "\n";
+        //std::cout << "Last message id (snnad): " <<  last_message_id << "\n" ;
         if(strcmp(channel_id.c_str(), "") != 0){
 
-            std::cout << "Room id: " << channel_id << "\n";
+            //std::cout << "Room id: " << channel_id << "\n";
         }
 
         closeSSL(ssl, sd, ctx);
-        printf("PROBLEMY\n");
+        //("PROBLEMY\n");
         if(strcmp(id_roomky.c_str(), "") == 0){
             printf("Spojení špatně navázáno, navazuji znovu\n");
             BotControl(verbose,token);
         }
 
         //Tady se zavolá funkce která jede do konce 
-        BotTalk(token, last_message_id, id_roomky,sa , ctx, ssl, server_cert, str, buf, meth, sd);
+        BotTalk(verbose, token, last_message_id, id_roomky,sa , ctx, ssl, server_cert, str, buf, meth, sd);
     } 
 }
 
