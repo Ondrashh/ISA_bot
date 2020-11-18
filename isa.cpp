@@ -34,7 +34,7 @@ void closeSSL(SSL* ssl, int sd, SSL_CTX* ctx){
     SSL_shutdown (ssl);
     close(sd);
     SSL_free (ssl);
-    SSL_CTX_free (ctx);
+    //SSL_CTX_free (ctx);
 
 }
 
@@ -129,38 +129,41 @@ vector<string> ParseMessages(string received_message){
                 }
             }
         }
-        if(received_message[i] == 'n'){
+        if(received_message[i] == 'r'){
             i++;
-            if(received_message[i] == 'a'){
+            if(received_message[i] == 'n'){
                 i++;
-                if(received_message[i] == 'm'){
+                if(received_message[i] == 'a'){
                     i++;
-                    if(received_message[i] == 'e'){
+                    if(received_message[i] == 'm'){
                         i++;
-                        if(received_message[i] == '"'){
+                        if(received_message[i] == 'e'){
                             i++;
-                            if(received_message[i] == ':'){
-                                i = i+3;
-                                while(received_message[i] != '"'){
-                                    //<channel> - <username>: <message>
-                                    message_from_user.push_back(received_message[i]);
-                                    i++;
+                            if(received_message[i] == '"'){
+                                i++;
+                                if(received_message[i] == ':'){
+                                    i = i+3;
+                                    while(received_message[i] != '"'){
+                                        //<channel> - <username>: <message>
+                                        message_from_user.push_back(received_message[i]);
+                                        i++;
+                                    }
+                                    if(message_from_user.find(bot) == std::string::npos){
+                                        isa_bot.append(message_from_user);
+                                        isa_bot.push_back(':');
+                                        isa_bot.push_back(' ');
+                                        isa_bot.append(content);
+                                        messages.push_back(isa_bot);
+                                    }
+                                    //std::cout<< isa_bot;
+                                    message_from_user = "";
+                                    isa_bot = "isa-bot - "; 
+                                    content = "";
+                                    
                                 }
-                                if(message_from_user.find(bot) == std::string::npos){
-                                    isa_bot.append(message_from_user);
-                                    isa_bot.push_back(':');
-                                    isa_bot.push_back(' ');
-                                    isa_bot.append(content);
-                                    messages.push_back(isa_bot);
-                                }
-                                //std::cout<< isa_bot;
-                                message_from_user = "";
-                                isa_bot = "isa-bot - "; 
-                                content = "";
-                                
                             }
+                
                         }
-            
                     }
                 }
             }
@@ -179,7 +182,7 @@ string GetLastMessageId(string received_message){
         if(received_message[i] == '"'){
             i++;
             if(received_message[i] == 'i'){
-                i++;
+                 i++;
                 if(received_message[i] == 'd'){
                     i++;
                     if(received_message[i] == '"'){
@@ -213,19 +216,20 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
     
     int err;
     stringstream http_request_get_message_after;
-    string last_get_id = last_message_id;
+    string last_get_id = "";
     while (true){
         //std::cout << "Hotovo Last message id :   " << last_message_id << "\n";
         //std::cout << "Hotovo Room id:   " << room_id << "\n";
         sd = socket (AF_INET, SOCK_STREAM, 0); 
         ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
 
-        last_get_id = last_message_id;
+
+        cout<<last_message_id << "\n";
         //std::cout<<"Po téhle už nic nechci: " << last_message_id << "\n";
         // Dotaz na získání zpráv po poslední kterou jse zachitil
         http_request_get_message_after.str("");
         //std::cout<<http_request_get_message_after.str();
-        http_request_get_message_after << "GET /api/v6/channels/"+ room_id + "/messages?after="+ last_get_id + " HTTP/1.1\r\n"
+        http_request_get_message_after << "GET /api/v6/channels/"+ room_id + "/messages?after="+ last_message_id + " HTTP/1.1\r\n"
                << "Content-Type: application/json; charset=utf-8\r\n"
                << "Host: discord.com\r\n"
                << "Authorization: Bot " << bot_token << "\r\n"
@@ -234,7 +238,8 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
 
         // Převedení na string
         string request = http_request_get_message_after.str();
-        
+
+        sleep(1);
         // Poslání dotazu
         err = SSL_write (ssl, request.c_str(), request.size());  
         if(err == -1){
@@ -243,7 +248,7 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
         }
         // String ve kterém budu ukládat příchozí zprávu ze serveru
         string received_message;
-        
+       
         // Přectení celé zprávy a uložení odpovědi
         while (err > 0){
             err = SSL_read (ssl, buf, sizeof(buf)-1);   
@@ -251,77 +256,79 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
             received_message.append(string(buf));          
             
         }
-
         closeSSL(ssl, sd, ctx);
         
         int help = received_message.find("\r\n\r\n");
         string just_content = received_message.erase(0, (help + 4));
-        //std::cout<<just_content;
+        std::cout<<just_content;
 
-        last_get_id = GetLastMessageId(just_content);
+        //last_get_id = GetLastMessageId(just_content);
 
-        if(strcmp(last_message_id.c_str(), last_get_id.c_str()) != 0 && strcmp(last_get_id.c_str(), "") != 0){
+        if(strcmp(last_message_id.c_str(), last_get_id.c_str()) != 0){
             
-            //std::cout << just_content;
-            sleep(2);
+            cout<< just_content << "\n\n\n\n";
             vector<string> parsed_messages {};
             parsed_messages = ParseMessages(just_content);
             
-            sd = socket (AF_INET, SOCK_STREAM, 0); 
-            ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
-            stringstream http_post_message;
-            string concat_msg = "";
-            string print_msg = "";
-            //std::cout<< "ROZPARSOVANO: " << parsed_messages[0] << "\n";
+
             for(int i = parsed_messages.size()-1; i >= 0; i--){
-                concat_msg.append(parsed_messages[i]);
-                print_msg.append(parsed_messages[i]);
-                print_msg.append("\n");
-                concat_msg.append("\\n");
+                std::cout<< parsed_messages[i] << "\n";
+
+                stringstream http_post_message;
+                string concat_msg = "";
+                string print_msg = "";
+
+                string content = "{\"content\":\"echo: " + parsed_messages[i] + "\"}";
+                std::cout<< content << "\n";
+                sd = socket (AF_INET, SOCK_STREAM, 0); 
+                ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
+                http_post_message << "POST /api/v6/channels/"+ room_id + "/messages HTTP/1.1\r\n"
+                    << "Content-Type: application/json\r\n"
+                    << "Host: discord.com\r\n"
+                    << "Authorization: Bot " << bot_token << "\r\n"
+                    << "Accept: application/json\r\n"
+                    << "Content-length: " << content.size() << "\r\n"
+                    << "Connection: close\r\n\r\n"
+                    << content << "\r\n\r\n";
+                cout<< "\n" << last_message_id << content << "\n";
+                content = "";
+                if(verbose){
+                    std::cout<< print_msg;
+                }
+                last_message_id = GetLastMessageId(just_content);
+            //Zaslání zprávy zpět na server
+
+                request = http_post_message.str();
+            
+                err = SSL_write (ssl, request.c_str(), request.size());  
+                if(err == -1){
+                    std::cout << "Nepodařilo se odeslat SSL požadavek\n";
+                    exit(101);
+                }
+                while (err > 0){
+                    err = SSL_read (ssl, buf, sizeof(buf)-1);   
+                    buf[err] = '\0';
+                    received_message.append(string(buf)); 
+                }       
+                closeSSL(ssl, sd, ctx); 
+                int help = received_message.find("\r\n\r\n");
+                string just_content = received_message.erase(0, (help + 4));
+                //std::cout<< just_content;  
+
+
                 
+                cout<< "Písmeno a id: snad  " << last_message_id << "\n";
+                //std::cout<<"\n\n" <<last_message_id << "\n";
+                concat_msg = "";
+                content = "";
+                sleep(2);
             }
             //TODO
-            if(verbose){
-                std::cout<< print_msg;
-            }
             
-            //std::cout<< "\n----------------------------------------\n";
-            string content = "{\"content\":\"echo: " + concat_msg + "\"}";
-            //Zaslání zprávy zpět na server
-            http_post_message << "POST /api/v6/channels/"+ room_id + "/messages HTTP/1.1\r\n"
-                << "Content-Type: application/json\r\n"
-                << "Host: discord.com\r\n"
-                << "Authorization: Bot " << bot_token << "\r\n"
-                << "Accept: application/json\r\n"
-                << "Content-length: " << content.size() << "\r\n"
-                << "Connection: close\r\n\r\n"
-                << content << "\r\n\r\n";
-            content = "";
-            request = http_post_message.str();
-            
-            err = SSL_write (ssl, request.c_str(), request.size());  
-            if(err == -1){
-                std::cout << "Nepodařilo se odeslat SSL požadavek\n";
-                exit(101);
-            }
-            while (err > 0){
-                err = SSL_read (ssl, buf, sizeof(buf)-1);   
-                buf[err] = '\0';
-                received_message.append(string(buf)); 
-            }       
-            closeSSL(ssl, sd, ctx); 
-            int help = received_message.find("\r\n\r\n");
-            string just_content = received_message.erase(0, (help + 4));
-            //std::cout<< just_content;  
-            last_message_id = GetLastMessageId(just_content);
-            //std::cout<<"\n\n" <<last_message_id << "\n";
-            concat_msg = "";
-            content = "";
         }
         //last_message_id = GetLastMessageId(just_content);
         
 
-        sleep(2);
     }
 
 }
