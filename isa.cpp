@@ -651,6 +651,7 @@ tuple<bool, const char*> ArgumentParser(int argc, char **argv){
 //Spuštění programu
 int main(int argc, char *argv[]) {
 
+    printf("Jsem v mainu\n");
     // Funkce na zpracování argumentů
     bool verbose;
     const char* token;
