@@ -22,8 +22,7 @@
 #include <vector>
 #include <stdio.h>      
 #include <stdlib.h>  
-#include <unistd.h>
-#include <stdlib.h>  
+#include <unistd.h>  
 
 using namespace std;
 
@@ -34,6 +33,7 @@ void closeSSL(SSL* ssl, int sd, SSL_CTX* ctx){
     SSL_shutdown (ssl);
     close(sd);
     SSL_free (ssl);
+    //Tohle na merlinu padalo
     //SSL_CTX_free (ctx);
 
 }
@@ -99,7 +99,7 @@ vector<string> ParseMessages(string received_message){
     string bot = "bot";
     vector<string> messages {};
     string content = "";
-    string isa_bot = "isa-bot - ";
+    string isa_bot = "";
     string message_from_user = "";
     for(int i =0; i < received_message.length(); i++){
         if(received_message[i] == 'n'){
@@ -150,14 +150,15 @@ vector<string> ParseMessages(string received_message){
                                     }
                                     if(message_from_user.find(bot) == std::string::npos){
                                         isa_bot.append(message_from_user);
-                                        isa_bot.push_back(':');
+                                        isa_bot.push_back(' ');
+                                        isa_bot.push_back('-');
                                         isa_bot.push_back(' ');
                                         isa_bot.append(content);
                                         messages.push_back(isa_bot);
                                     }
                                     //std::cout<< isa_bot;
                                     message_from_user = "";
-                                    isa_bot = "isa-bot - "; 
+                                    isa_bot = ""; 
                                     content = "";
                                     
                                 }
@@ -218,17 +219,16 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
     stringstream http_request_get_message_after;
     string last_get_id = "";
     while (true){
-        //std::cout << "Hotovo Last message id :   " << last_message_id << "\n";
-        //std::cout << "Hotovo Room id:   " << room_id << "\n";
+
         sd = socket (AF_INET, SOCK_STREAM, 0); 
         ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
 
+        //cout<<last_message_id << "\n";
 
-        cout<<last_message_id << "\n";
-        //std::cout<<"Po téhle už nic nechci: " << last_message_id << "\n";
         // Dotaz na získání zpráv po poslední kterou jse zachitil
         http_request_get_message_after.str("");
-        //std::cout<<http_request_get_message_after.str();
+
+        // Dotaz na získání zprávy od určité zprávy
         http_request_get_message_after << "GET /api/v6/channels/"+ room_id + "/messages?after="+ last_message_id + " HTTP/1.1\r\n"
                << "Content-Type: application/json; charset=utf-8\r\n"
                << "Host: discord.com\r\n"
@@ -239,7 +239,9 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
         // Převedení na string
         string request = http_request_get_message_after.str();
 
+        // Uspání pro omezení dotazů na servery discordu
         sleep(1);
+
         // Poslání dotazu
         err = SSL_write (ssl, request.c_str(), request.size());  
         if(err == -1){
@@ -256,32 +258,45 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
             received_message.append(string(buf));          
             
         }
+
+        // Uzavření spojení 
         closeSSL(ssl, sd, ctx);
         
+        // Zahození hlavničky, kterou stejně nevyužiji
         int help = received_message.find("\r\n\r\n");
         string just_content = received_message.erase(0, (help + 4));
-        std::cout<<just_content;
+        //std::cout<<just_content;
 
-        //last_get_id = GetLastMessageId(just_content);
-
+        // Pokud přišla nějaká nová zpráva
         if(strcmp(last_message_id.c_str(), last_get_id.c_str()) != 0){
             
-            cout<< just_content << "\n\n\n\n";
+            //cout<< just_content << "\n\n\n\n";
+
+
+            // Rozparsování contentu (zpráv co mi přijde)
             vector<string> parsed_messages {};
             parsed_messages = ParseMessages(just_content);
             
 
+            // Vezmu zprávy od zadu, protože chci od starších po nejnovější
             for(int i = parsed_messages.size()-1; i >= 0; i--){
-                std::cout<< parsed_messages[i] << "\n";
+
+
+                //std::cout<< parsed_messages[i] << "\n";
 
                 stringstream http_post_message;
                 string concat_msg = "";
                 string print_msg = "";
 
+                // Sestavení contentu, který bot pošle
                 string content = "{\"content\":\"echo: " + parsed_messages[i] + "\"}";
-                std::cout<< content << "\n";
+
+                //std::cout<< content << "\n";
+
+                // Znovu inicializace SSL připojení
                 sd = socket (AF_INET, SOCK_STREAM, 0); 
                 ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
+                // POST kde posílám na server už samotný content co chci aby bot vypsal
                 http_post_message << "POST /api/v6/channels/"+ room_id + "/messages HTTP/1.1\r\n"
                     << "Content-Type: application/json\r\n"
                     << "Host: discord.com\r\n"
@@ -290,10 +305,14 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
                     << "Content-length: " << content.size() << "\r\n"
                     << "Connection: close\r\n\r\n"
                     << content << "\r\n\r\n";
-                cout<< "\n" << last_message_id << content << "\n";
+                //cout<< "\n" << last_message_id << content << "\n";
                 content = "";
+
+                // Pokud je zapnutý přepínač verbose
                 if(verbose){
-                    std::cout<< print_msg;
+                    print_msg = "isa-bot - ";
+                    //aprint_msg.append(parsed_messages[1]);
+                    std::cout<< print_msg << parsed_messages[i] << "\n";
                 }
                 last_message_id = GetLastMessageId(just_content);
             //Zaslání zprávy zpět na server
@@ -317,7 +336,7 @@ void BotTalk(bool verbose, string bot_token, string last_message_id, string room
 
 
                 
-                cout<< "Písmeno a id: snad  " << last_message_id << "\n";
+                //cout<< "Písmeno a id: snad  " << last_message_id << "\n";
                 //std::cout<<"\n\n" <<last_message_id << "\n";
                 concat_msg = "";
                 content = "";
@@ -342,7 +361,6 @@ tuple<string, string> FindIsaBotChannel(string received_message){
     string id_roomky = "";
     for(int i = 0; received_message[i] != '\0'; i++){
         char pismenko = received_message[i];
-        //printf("%c",pismenko);
         if(pismenko == '"'){
             i++;
             if(received_message[i] == 'n'){
@@ -365,12 +383,12 @@ tuple<string, string> FindIsaBotChannel(string received_message){
                                                 nazev_roomky.push_back(received_message[i]);
                                                 i++;
                                             } 
+                                            //std::cout<< "\n\n\n" <<nazev_roomky << "\n\n\n";
                                             if(strcmp(nazev_roomky.c_str(), "isa-bot") != 0){
                                                 nazev_roomky = "";
                                             }else{
                                                 int back = 0;
                                                 while(received_message[back] != '{'){
-                                                    //std::cout << received_message[back];
                                                     back--;
                                                 }
                                                 for(; received_message[back] != '\0'; back++){
@@ -392,7 +410,6 @@ tuple<string, string> FindIsaBotChannel(string received_message){
                                                                                     id_roomky.push_back(received_message[back]);
                                                                                     back++;
                                                                                 }
-                                                                                //std::cout<< id_roomky;
                                                                                 for(; received_message[back] != '\0'; back++){
                                                                                     if(received_message[back] == 'a'){
                                                                                         back++;
@@ -453,8 +470,6 @@ tuple<string, string> FindIsaBotChannel(string received_message){
 
     }
 
-    //std::cout << "Last messagew id: " << last_message_id << "\n";
-    //std::cout << "Id roomky: " << id_roomky << "\n";
     return make_tuple(id_roomky, last_message_id);;
 }
 
@@ -468,7 +483,6 @@ vector<string> GetBotDiscordServers(string received_message){
     // Musím si zjistit všechny id serverů, hledáma konkrétní posloupnost znaků, která značí id
     for(int i = 0; received_message[i] != '\0'; i++){
         char pismenko = received_message[i];
-        //printf("%c",pismenko);
         if(pismenko == '['){
             i++;
             if(received_message[i] == '{'){
@@ -601,7 +615,7 @@ void BotControl(bool verbose, const char* token){
 
             //std::cout << "Room id: " << channel_id << "\n";
         }
-
+        sleep(3);
         closeSSL(ssl, sd, ctx);
         //("PROBLEMY\n");
         if(strcmp(id_roomky.c_str(), "") == 0){
@@ -658,7 +672,7 @@ tuple<bool, const char*> ArgumentParser(int argc, char **argv){
 //Spuštění programu
 int main(int argc, char *argv[]) {
 
-    printf("Jsem v mainu\n");
+
     // Funkce na zpracování argumentů
     bool verbose;
     const char* token;
