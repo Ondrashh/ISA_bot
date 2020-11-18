@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <memory.h>
 #include <errno.h>
+#include <algorithm>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -89,14 +90,74 @@ SSL* initSSL(struct sockaddr_in sa, SSL_CTX* ctx, SSL* ssl, X509*    server_cert
     return ssl;
 }
 
-string FindLastMessageId(string received_message){
+vector<string> ParseMessages(string received_message){
 
+    int help;
+    vector<string> messages {};
+    string content = "";
+    string message_from_user = "isa-bot - ";
+    for(int i =0; i < received_message.length(); i++){
+        if(received_message[i] == 'n'){
+            help = i;
+            help++;
+            if(received_message[help] == 't'){
+                help++;
+                if(received_message[help] == 'e'){
+                    help++;
+                    if(received_message[help] == 'n'){
+                        help++;
+                        if(received_message[help] == 't'){
+                            help++;
+                            if(received_message[help] == '"'){
+                                help++;
+                                if(received_message[help] == ':'){
+                                    help = help+3;
+                                    while(received_message[help] != '"'){
+                                        //<channel> - <username>: <message>
+                                        content.push_back(received_message[help]);
+                                        help++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if(received_message[i] == 'n'){
+            i++;
+            if(received_message[i] == 'a'){
+                i++;
+                if(received_message[i] == 'm'){
+                    i++;
+                    if(received_message[i] == 'e'){
+                        i++;
+                        if(received_message[i] == '"'){
+                            i++;
+                            if(received_message[i] == ':'){
+                                i = i+3;
+                                while(received_message[i] != '"'){
+                                    //<channel> - <username>: <message>
+                                    message_from_user.push_back(received_message[i]);
+                                    i++;
+                                }
+                                message_from_user.push_back(':');
+                                message_from_user.push_back(' ');
+                                message_from_user.append(content);
+                                std::cout<< message_from_user << "\n";
+                                messages.push_back(message_from_user);
+                                message_from_user = "isa-bot - "; 
+                                
+                            }
+                        }
+            
+                    }
+                }
+            }
+        }
+    }
 
-
-
-
-
-
+    return messages;
 }
 
 
@@ -140,9 +201,49 @@ void BotTalk(string bot_token, string last_message_id, string room_id, struct so
             
         }
         closeSSL(ssl, sd, ctx);
+        
         int help = received_message.find("\r\n\r\n");
-        string just_content = received_message.erase(0, (help));
-        std::cout << just_content;
+        string just_content = received_message.erase(0, (help + 4));
+        
+        if(just_content[1] != ']'){
+            //std::cout << just_content;
+            sleep(2);
+            vector<string> parsed_messages {};
+            parsed_messages = ParseMessages(just_content);
+            
+            sd = socket (AF_INET, SOCK_STREAM, 0); 
+            ssl = initSSL(sa,ctx,ssl,server_cert,str,buf,meth,sd);
+            stringstream http_post_message;
+            std::cout<< "ROZPARSOVANO: " << parsed_messages[0] << "\n";
+            string content = "{\"content\":\"echo: " + parsed_messages[0] + "\"}";
+                        //Zaslání zprávy zpět na server
+            http_post_message << "POST /api/v6/channels/"+ room_id + "/messages HTTP/1.1\r\n"
+                << "Content-Type: application/json\r\n"
+                << "Host: discord.com\r\n"
+                << "Authorization: Bot " << bot_token << "\r\n"
+                << "Accept: application/json\r\n"
+                << "Content-length: " << content.size() << "\r\n"
+                << "Connection: close\r\n\r\n"
+                << content << "\r\n\r\n";
+            
+            request = http_post_message.str();
+            
+            err = SSL_write (ssl, request.c_str(), request.size());  
+            if(err == -1){
+                std::cout << "Nepodařilo se odeslat SSL požadavek\n";
+                exit(101);
+            }
+            while (err > 0){
+                err = SSL_read (ssl, buf, sizeof(buf)-1);   
+                buf[err] = '\0';
+                received_message.append(string(buf)); 
+            }
+            //std::cout<< received_message;         
+            closeSSL(ssl, sd, ctx);    
+        }
+
+        
+
         sleep(2);
     }
 
