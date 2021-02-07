@@ -6,6 +6,7 @@
 #### Zpracoval: Ondřej Pavlacký
 #### Login: xpavla15
 #### 3.BIT 2020/21
+#### 12/20b
 
 ## Discord bot
 
